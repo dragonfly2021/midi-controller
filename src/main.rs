@@ -6,18 +6,30 @@ use ads1x1x::{Ads1x1x, ComparatorLatching, TargetAddr, channel};
 use defmt::{debug, info};
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Pull};
-use embassy_rp::i2c::InterruptHandler;
+use embassy_rp::i2c::{self, Blocking};
+use embassy_rp::peripherals::I2C0;
 use libm::round;
 use nb::block;
 use {defmt_rtt as _, panic_probe as _};
 
-embassy_rp::bind_interrupts!(struct Irqs {
-    I2C0_IRQ => InterruptHandler<embassy_rp::peripherals::I2C0>;
-    I2C1_IRQ => InterruptHandler<embassy_rp::peripherals::I2C1>;
-});
+// Type aliases
+type Adc<'satic> = Ads1x1x<
+    i2c::I2c<'static, I2C0, Blocking>,
+    ads1x1x::ic::Ads1115,
+    ads1x1x::ic::Resolution16Bit,
+    ads1x1x::mode::OneShot,
+>;
+
+enum Sliders {
+    Slider1,
+    Slider2,
+    Slider3,
+    Slider4,
+    Slider5,
+}
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     debug!("Performing startup.");
 
     let p = embassy_rp::init(Default::default());
@@ -27,11 +39,26 @@ async fn main(_spawner: Spawner) {
     let config = embassy_rp::i2c::Config::default();
     let i2c = embassy_rp::i2c::I2c::new_blocking(p.I2C0, scl, sda, config);
 
-    let mut alert_pin = Input::new(p.PIN_0, Pull::Up);
-    let mut adc = Ads1x1x::new_ads1115(i2c, TargetAddr::default());
+    let alert_pin = Input::new(p.PIN_0, Pull::Up);
+    let adc = Ads1x1x::new_ads1115(i2c, TargetAddr::default());
     debug!("i2c bus created");
 
     let threshold = 20;
+
+    spawner.must_spawn(slider1_read(alert_pin, adc, threshold));
+}
+
+#[embassy_executor::task]
+async fn slider1_interupt(mut alert_pin: Input<'static>) {
+    loop {
+        alert_pin.wait_for_low().await;
+    }
+}
+
+// async fn slider_move() {}
+
+#[embassy_executor::task]
+async fn slider1_read(mut alert_pin: Input<'static>, mut adc: Adc<'static>, threshold: i16) {
     adc.set_full_scale_range(ads1x1x::FullScaleRange::Within2_048V)
         .unwrap();
 
@@ -64,7 +91,6 @@ async fn main(_spawner: Spawner) {
         Ok(mut adc) => loop {
             alert_pin.wait_for_low().await;
             debug!("Detected Potentiometer value change.");
-
             let value = adc.read().unwrap();
             low_threshold = value.saturating_sub(threshold);
             high_threshold = value.saturating_add(threshold);
