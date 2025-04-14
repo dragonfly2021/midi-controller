@@ -8,25 +8,29 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::i2c::{self, Blocking};
 use embassy_rp::peripherals::I2C0;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
+use embedded_hal_async::delay::DelayNs;
 use libm::round;
 use nb::block;
 use {defmt_rtt as _, panic_probe as _};
 
 // Type aliases
-type Adc<'satic> = Ads1x1x<
+type Adc<'a, M> = Ads1x1x<
     i2c::I2c<'static, I2C0, Blocking>,
     ads1x1x::ic::Ads1115,
     ads1x1x::ic::Resolution16Bit,
-    ads1x1x::mode::OneShot,
+    M,
 >;
 
-enum Sliders {
-    Slider1,
-    Slider2,
-    Slider3,
-    Slider4,
-    Slider5,
+const THRESHOLD: i16 = 30;
+
+enum Slider {
+    //   MoveSlider,
+    ReadSlider,
 }
+
+static SLIDER1_EVENT: Signal<CriticalSectionRawMutex, Slider> = Signal::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -43,26 +47,26 @@ async fn main(spawner: Spawner) {
     let adc = Ads1x1x::new_ads1115(i2c, TargetAddr::default());
     debug!("i2c bus created");
 
-    let threshold = 20;
-
-    spawner.must_spawn(slider1_read(alert_pin, adc, threshold));
+    spawner.must_spawn(slider1_control(adc));
+    spawner.must_spawn(slider1_interupt(alert_pin));
 }
 
 #[embassy_executor::task]
 async fn slider1_interupt(mut alert_pin: Input<'static>) {
     loop {
         alert_pin.wait_for_low().await;
+        debug!("Slider event detected.");
+        SLIDER1_EVENT.signal(Slider::ReadSlider);
+        embassy_time::Delay.delay_ms(10).await;
     }
 }
 
-// async fn slider_move() {}
-
 #[embassy_executor::task]
-async fn slider1_read(mut alert_pin: Input<'static>, mut adc: Adc<'static>, threshold: i16) {
+async fn slider1_control(mut adc: Adc<'static, ads1x1x::mode::OneShot>) {
     adc.set_full_scale_range(ads1x1x::FullScaleRange::Within2_048V)
         .unwrap();
 
-    adc.set_data_rate(ads1x1x::DataRate16Bit::Sps860).unwrap();
+    adc.set_data_rate(ads1x1x::DataRate16Bit::Sps8).unwrap();
 
     adc.set_comparator_polarity(ads1x1x::ComparatorPolarity::ActiveLow)
         .unwrap();
@@ -74,8 +78,8 @@ async fn slider1_read(mut alert_pin: Input<'static>, mut adc: Adc<'static>, thre
 
     info!("Initial vlaue {}", baseline);
 
-    let mut low_threshold = baseline.saturating_sub(threshold);
-    let mut high_threshold = baseline.saturating_add(threshold);
+    let low_threshold = baseline.saturating_sub(THRESHOLD);
+    let high_threshold = baseline.saturating_add(THRESHOLD);
     debug!("Setup initial low_threshold set to: {}", low_threshold);
     debug!("Setup initial high_threshold set to: {}", high_threshold);
 
@@ -89,21 +93,25 @@ async fn slider1_read(mut alert_pin: Input<'static>, mut adc: Adc<'static>, thre
     match adc.into_continuous() {
         Err(_) => panic!("Failed to go into continuous mode."),
         Ok(mut adc) => loop {
-            alert_pin.wait_for_low().await;
+            let event = SLIDER1_EVENT.wait().await;
+            match event {
+                Slider::ReadSlider => {
+                    let value = adc.read().unwrap();
+                    let low_threshold = value.saturating_sub(THRESHOLD);
+                    let high_threshold = value.saturating_add(THRESHOLD);
+                    debug!("Setup initial low_threshold set to: {}", low_threshold);
+                    debug!("Setup initial high_threshold set to: {}", high_threshold);
+                    adc.set_low_threshold_raw(value.saturating_sub(THRESHOLD))
+                        .unwrap();
+                    adc.set_high_threshold_raw(value.saturating_add(THRESHOLD))
+                        .unwrap();
+                    let percentage = value as f64 / 32767.0 * 100.0;
+                    let int_percentage = round(percentage) as i8;
+                    info!("Current value for adc: {}", value);
+                    info!("Current volume percentage: {}", int_percentage);
+                } //               Slider::MoveSlider => panic!("Moving the slider is not yet implemented."),
+            };
             debug!("Detected Potentiometer value change.");
-            let value = adc.read().unwrap();
-            low_threshold = value.saturating_sub(threshold);
-            high_threshold = value.saturating_add(threshold);
-            debug!("Setup initial low_threshold set to: {}", low_threshold);
-            debug!("Setup initial high_threshold set to: {}", high_threshold);
-            adc.set_low_threshold_raw(value.saturating_sub(threshold))
-                .unwrap();
-            adc.set_high_threshold_raw(value.saturating_add(threshold))
-                .unwrap();
-            let percentage = value as f64 / 32767.0 * 100.0;
-            let int_percentage = round(percentage) as i8;
-            info!("Current value for adc: {}", value);
-            info!("Current volume percentage: {}", int_percentage);
         },
     }
 }
