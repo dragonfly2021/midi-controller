@@ -39,4 +39,3 @@ opt-level = "z"
 [[bin]]
 name = "midi-controller"
 test = false
-
