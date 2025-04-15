@@ -11,9 +11,11 @@ use embedded_hal_async::delay::DelayNs;
 use midi_controller::slider::{self, Slider, SliderAction, SliderActionType, SliderValue};
 use {defmt_rtt as _, panic_probe as _};
 
-const THRESHOLD: i16 = 25;
+const THRESHOLD: i16 = 20;
+
 static SLIDER1_SIGNAL: Signal<CriticalSectionRawMutex, SliderAction> = Signal::new();
 static SLIDER1_UPDATE: Signal<CriticalSectionRawMutex, SliderValue> = Signal::new();
+
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
     debug!("Performing startup.");

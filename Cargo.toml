@@ -35,7 +35,3 @@ opt-level = 'z'
 debug = 2
 lto = true
 opt-level = "z"
-
-[[bin]]
-name = "midi-controller"
-test = false

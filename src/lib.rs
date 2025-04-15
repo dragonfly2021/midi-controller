@@ -31,6 +31,9 @@ pub mod slider {
         threshold: i16,
         action_event: SliderActionType,
         slider_value_event: SliderValueUpdateType,
+        slider_percent: i8,
+        observed_max: i16,
+        observed_min: i16,
     }
 
     pub enum SliderValue {
@@ -48,7 +51,7 @@ pub mod slider {
             action_event: SliderActionType,
             slider_value_event: SliderValueUpdateType,
         ) -> Self {
-            adc.set_full_scale_range(ads1x1x::FullScaleRange::Within2_048V)
+            adc.set_full_scale_range(ads1x1x::FullScaleRange::Within4_096V)
                 .unwrap();
             adc.set_data_rate(ads1x1x::DataRate16Bit::Sps250).unwrap();
             adc.set_comparator_polarity(ads1x1x::ComparatorPolarity::ActiveLow)
@@ -59,11 +62,19 @@ pub mod slider {
 
             adc.set_comparator_mode(ads1x1x::ComparatorMode::Window)
                 .unwrap();
+
+            let observed_max = 26150;
+            let observed_min = 10;
+
+            let slider_percent = 0;
             Self {
                 adc: Some(adc),
                 threshold,
                 action_event,
                 slider_value_event,
+                slider_percent,
+                observed_max,
+                observed_min,
             }
         }
 
@@ -80,8 +91,22 @@ pub mod slider {
                 baseline.saturating_sub(self.threshold),
                 baseline.saturating_add(self.threshold),
             );
-            self.slider_value_event
-                .signal(SliderValue::Percent(self.value_to_percent(baseline)));
+
+            if self.observed_min > baseline {
+                self.observed_min = baseline;
+            }
+
+            if self.observed_max < baseline {
+                self.observed_max = baseline;
+            }
+
+            let new_slider_percent = self.value_to_percent(baseline);
+            if self.slider_percent != new_slider_percent {
+                self.slider_value_event
+                    .signal(SliderValue::Percent(new_slider_percent));
+                self.slider_percent = new_slider_percent;
+                debug!("Value for slider changed to: {}", new_slider_percent);
+            }
         }
 
         fn set_thresholds(&mut self, low: i16, high: i16) {
@@ -95,11 +120,12 @@ pub mod slider {
         }
 
         pub fn value_to_percent(&self, value: i16) -> i8 {
-            round(value as f64 / 32767.0 * 100.0) as i8
+            round(value as f64 / (self.observed_max - self.observed_min) as f64 * 100.0) as i8
         }
 
         pub fn percent_to_value(&self, percent: i8) -> i16 {
-            (percent as i16 * 128_i16 + 64_i16) as i16
+            (percent as f64 / 100.0 * (self.observed_max - self.observed_min) as f64
+                + ((self.observed_max - self.observed_min) as f64 / 50.0)) as i16
         }
 
         pub async fn into_continuous(&mut self) {
