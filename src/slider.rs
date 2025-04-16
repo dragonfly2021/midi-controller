@@ -165,7 +165,11 @@ impl<'a> Slider<'a> {
                 panic!("We are going the wrong way!");
             }
 
-            if distance < 500 {
+            if distance < 250 {
+                self.motor.clamp();
+
+                Timer::after(Duration::from_millis(10)).await;
+
                 self.motor.stop();
                 break;
             }

@@ -29,4 +29,10 @@ impl<'a> DcMotor<'a> {
         let _ = self.ain2.set_low();
         self.pwm.set_duty_cycle_percent(0).unwrap();
     }
+
+    pub fn clamp(&mut self) {
+        let _ = self.ain1.set_high();
+        let _ = self.ain2.set_high();
+        self.pwm.set_duty_cycle_percent(100).unwrap();
+    }
 }

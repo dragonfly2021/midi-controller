@@ -106,7 +106,7 @@ async fn move_fader() {
     let numbers = [26, 53, 17, 76, 23, 89, 52, 100, 0];
     loop {
         for num in numbers {
-            Timer::after(Duration::from_secs(2)).await;
+            Timer::after(Duration::from_secs(1)).await;
             SLIDER1_SIGNAL.signal(SliderAction::MoveSlider(num));
             debug!("Sending the slider to {}%", num);
         }
