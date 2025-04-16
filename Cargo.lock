@@ -794,6 +794,7 @@ dependencies = [
  "embassy-rp",
  "embassy-sync 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "embedded-hal-async",
  "libm",
  "nb 1.1.0",
